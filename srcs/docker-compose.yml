@@ -1,0 +1,174 @@
+services:
+  nginx:
+    build:
+      context: ./requirements/nginx
+    image: nginx
+    container_name: nginx
+    ports:
+      - "443:443"
+    volumes:
+      - www-data:/var/www/html
+      - static-data:/var/www/static
+    networks:
+      - inception
+    depends_on:
+      - wordpress
+      - adminer
+      - static-site
+      - prometheus
+    restart: on-failure
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME}
+    secrets:
+      - wp_admin_password
+
+  wordpress:
+    build:
+      context: ./requirements/wordpress
+    image: wordpress
+    container_name: wordpress
+    volumes:
+      - www-data:/var/www/html
+    networks:
+      - inception
+    depends_on:
+      - mariadb
+      - redis
+    restart: on-failure
+    environment:
+      - WORDPRESS_DB_HOST=${WP_DB_HOST}
+      - WORDPRESS_DB_NAME=${WP_DB_NAME}
+      - WORDPRESS_DB_USER=${WP_DB_USER}
+      - WORDPRESS_DB_PASSWORD_FILE=/run/secrets/db_user_password
+      - WORDPRESS_ADMIN_USER=${WP_ADMIN_USER}
+      - WORDPRESS_ADMIN_PASSWORD_FILE=/run/secrets/wp_admin_password
+      - WORDPRESS_ADMIN_EMAIL=${WP_ADMIN_EMAIL}
+      - WORDPRESS_TITLE=${WP_TITLE}
+      - WORDPRESS_USER=${WP_USER}
+      - WORDPRESS_USER_EMAIL=${WP_USER_EMAIL}
+      - REDIS_HOST=redis
+    secrets:
+      - db_user_password
+      - wp_admin_password
+
+  mariadb:
+    build:
+      context: ./requirements/mariadb
+    image: mariadb
+    container_name: mariadb
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - inception
+    restart: on-failure
+    environment:
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db_root_password
+      - MYSQL_DATABASE=${WP_DB_NAME}
+      - MYSQL_USER=${WP_DB_USER}
+      - MYSQL_PASSWORD_FILE=/run/secrets/db_user_password
+    secrets:
+      - db_root_password
+      - db_user_password
+
+  redis:
+    build:
+      context: ./bonus/redis
+    image: redis
+    container_name: redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - inception
+    restart: on-failure
+    command: redis-server /etc/redis/redis.conf
+
+  ftp:
+    build:
+      context: ./bonus/ftp
+    image: ftp
+    container_name: ftp
+    volumes:
+      - www-data:/home/${FTP_USER}/html
+    networks:
+      - inception
+    ports:
+      - "21:21"
+    restart: on-failure
+    environment:
+      - FTP_USER=${FTP_USER}
+      - FTP_PASSWORD_FILE=/run/secrets/ftp_password
+    secrets:
+      - ftp_password
+
+  adminer:
+    build:
+      context: ./bonus/adminer
+    image: adminer
+    container_name: adminer
+    networks:
+      - inception
+    depends_on:
+      - mariadb
+    restart: on-failure
+
+  static-site:
+    build:
+      context: ./bonus/static-site
+    image: static-site
+    container_name: static-site
+    volumes:
+      - static-data:/var/www/static
+    networks:
+      - inception
+    restart: on-failure
+
+  prometheus:
+    build:
+      context: ./bonus/prometheus
+    image: prometheus
+    container_name: prometheus
+    volumes:
+      - redis-data:/prometheus
+    networks:
+      - inception
+    restart: on-failure
+
+volumes:
+  db-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DB_DATA_PATH}
+  www-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${WWW_DATA_PATH}
+  redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${REDIS_DATA_PATH}
+  static-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${STATIC_DATA_PATH}
+
+networks:
+  inception:
+    driver: bridge
+
+secrets:
+  db_root_password:
+    file: ./secrets/db_root_password
+  db_user_password:
+    file: ./secrets/db_user_password
+  wp_admin_password:
+    file: ./secrets/wp_admin_password
+  ftp_password:
+    file: ./secrets/ftp_password
